@@ -38,6 +38,9 @@ contract DAOTreasury is Ownable {
 		dao = DAO(_dao);
 	}
 
+	function setDAO(address _dao) external onlyOwner {
+
+	}
 
     
 }
