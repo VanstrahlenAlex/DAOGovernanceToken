@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-import "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./DAO.sol";
 
 
@@ -17,10 +17,10 @@ contract DAOTreasury is Ownable {
 	DAO public dao;
 
 	//Mapping to track approved spending proposals
-	mapping(address => bool) public approvedProposals;
+	mapping(uint256 => bool) public approvedProposals;
 
 	//Mapping to track executed spending proposals
-	mapping(address => bool) public executedProposals;
+	mapping(uint256 => bool) public executedProposals;
 
 	//Event
 	event ProposalApproved(uint256 indexed proposalId);
@@ -44,6 +44,48 @@ contract DAOTreasury is Ownable {
 		emit DAOSet(_dao);
 	}
 
+	/**
+	 * @dev Approve a proposal for spending (only DAO)
+	 * @param proposalId ID of the proposal to approve
+	 */
+
+	function approvedProposal(uint256 proposalId) external {
+		require(msg.sender == address(dao), "Only DAO can approve proposals");
+		require(!approvedProposals[proposalId], "Proposal already approved");
+
+		approvedProposals[proposalId] = true;
+		emit ProposalApproved(proposalId);
+	}
+
+	/**
+	 * @dev Send funds based on an approved proposal
+	 * @param proposalId ID of the proposal to send funds
+	 * @param recipient Address to send funds to
+	 * @param amount Amount to send
+	 * @param token Token address
+	 */
+	function sendFunds(uint256 proposalId, address recipient, uint256 amount, address token) external {
+		require(msg.sender == address(dao), "Only DAO can spend funds");
+		require(approvedProposals[proposalId], "Proposal not approved");
+		require(!executedProposals[proposalId], "Proposal already executed");
+		require(recipient != address(0), "Invalid recipient");
+		require(amount > 0, "Amount must be greater than 0");
+
+		executedProposals[proposalId] = true;
+
+		if(token == address(0)){ 
+			//Send ETH
+			require(address(this).balance >= amount, "Insufficient ETH balance");
+			(bool success, ) = recipient.call{value: amount}("");
+			require(success, "ETH transfer failed");
+		} else { 
+			//Send ERC20 token 
+			IERC20 tokenContract = IERC20(token);
+			require(tokenContract.balanceOf(address(this)) >= amount, "Insufficient token balance");
+			require(tokenContract.transfer(recipient, amount), "Token transfer failed");
+		}
+		emit FundsSpend(proposalId, recipient, amount, token);
+	}
 
 	/**
 	 * @dev Fund the Trasuery with ETH 
