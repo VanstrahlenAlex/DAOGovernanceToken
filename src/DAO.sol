@@ -109,6 +109,67 @@ contract DAO is Ownable {
 		proposal.canceled = false;
 		
 		emit ProposalCreated(proposalId, msg.sender, description, recipient, amount, token, proposal.startTime, proposal.endTime);
-		return proposalId;
+		// return proposalId;
+	}
+
+	function vote(uint256 proposalId, bool support) external {
+		Proposal storage proposal = proposals[proposalId];
+
+		require(proposal.proposer != address(0), "Proposal does not exist");
+		require(block.timestamp >= proposal.startTime, "Voting not started");
+		require(block.timestamps < proposal.endTime, "Voting has ended");
+		require(!proposal.hasVoted[msg.sender], "You have already voted on this proposal");
+		require(!proposal.canceled, "Proposal is canceled");
+		require(!proposal.executed, "Proposal is already executed");
+		
+		uint256 votes = governanceToken.getVotingPower(msg.sender);
+		require(votes > 0, "No voting power");
+	
+		proposal.hasVoted[msg.sender] = true;
+		proposal.votedFor[msg.sender] = support;
+
+		if(support){
+			proposal.forVotes += votes;
+		} else {
+			proposal.againstVotes += votes;
+		}
+
+		emit Voted(proposalId, msg.sender, support, votes);
+	}
+
+	/**
+	 * @dev Cancel a proposal
+	 * @param proposalId  ID of the proposal to cancel 
+	 */
+	function cancelProposal(uint256 proposalId) external {
+		Proposal storage proposal = proposals[proposalId];
+		require(proposal.proposer != address(0), "Proposal does not exist");
+		require(!proposal.executed, "Proposal already executed");
+		require(!proposal.canceled, "Proposal already canceled");
+		require(msg.sender == proposal.proposer || msg.sender == owner(), "Not authorized to cancel");
+
+		proposal.canceled = true;
+		emit ProposalCanceled(proposalId);
+	}
+
+	function executeProposal(uint256 proposalId) external {
+		Proposal storage proposal = proposals[proposalId];
+
+		require(proposal.proposer != address(0), "Proposal does not exist");
+		require(block.timestamp >= proposal.endTime, "Voting period is not over");
+		require(!proposal.canceled, "Proposal is canceled");
+		require(!proposal.executed, "Proposal is already executed");
+		
+		require(proposal.forVotes > proposal.againstVotes >= quorumVotes, "Quorum not reached");
+		require(proposal.forVotes > proposal.againstVotes, "Proposal not passed");
+
+		proposal.executed = true; 
+
+		treasury.approveProposal(proposalId);
+
+		treasury.spendFunds(proposalId, proposal.recipient, proposal.amount, proposal.token);
+
+		emit ProposalExecuted(proposalId);
+		
 	}
 }
