@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.35;
 
-import "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./DAOGovernanceToken.sol";
 
 
@@ -11,8 +11,8 @@ import "./DAOGovernanceToken.sol";
  * @notice Interface for the treasury contract
  */
 interface IDAOTreasury {
-    function approveProposal(uint256 proposalId) external;
-	function spendFunds(uint256 proposalId, address recipient, uint256 amount, address token) external; 
+    function approvedProposal(uint256 proposalId) external;
+	function sendFunds(uint256 proposalId, address recipient, uint256 amount, address token) external;
 }
 
 /**
@@ -67,49 +67,47 @@ contract DAO is Ownable {
 	 * @param _governanceToken Address of the governance token contract
 	 * @param _proposalThreshold Minum tokens required to create a proposal
 	 * @param _votingPeriod Duration of the voting period in seconds
-	 * @param quorumVotes Minimum votes required for proposal to pass
+	 * @param _quorumVotes Minimum votes required for proposal to pass
 	 */
-	
-	constructor(address _governanceToken, address _treasury,  uint256 _proposalThreshold, uint256 _votingPeriod, uint256 quorumVotes) Ownable(msg.sender) {
-		governanceToken = DAOGovernanceToken(_governanceToken); 
+
+	constructor(address _governanceToken, address _treasury,  uint256 _proposalThreshold, uint256 _votingPeriod, uint256 _quorumVotes) Ownable(msg.sender) {
+		governanceToken = DAOGovernanceToken(_governanceToken);
 		treasury = IDAOTreasury(_treasury);
 		proposalThreshold = _proposalThreshold;
 		votingPeriod = _votingPeriod;
-		quorumVotes = quorumVotes;
+		quorumVotes = _quorumVotes;
 	}
 
 
 	/**
-	 * @author Alexander Van strahlen
 	 * @notice Creates a new proposal with the given parameters
 	 * @param description Description of the proposal
 	 * @param recipient Address to receive the funds
 	 * @param amount Amount of tokens to transfer
 	 * @param token Address of the token to transfer
-	 * @return proposal The proposal ID
+	 * @return proposalId The proposal ID
 	 */
-	function createProposal(string memory description, address recipient, uint256 amount, address token) external returns (uint256 proposal) {
+	function createProposal(string memory description, address recipient, uint256 amount, address token) external returns (uint256 proposalId) {
 		require(governanceToken.getVotingPower(msg.sender) >= proposalThreshold, "Insufficient voting power to create proposal");
 		require(bytes(description).length > 0, "Description can not be empty");
 		require(recipient != address(0), "Invalid recipient address");
 		require(amount > 0, "Amount must be greater than 0");
 
 		proposalId = proposalCount++;
-		Proposal storage proposal = proposals[proposalId];
+		Proposal storage newProposal = proposals[proposalId];
 
-		proposal.id = proposalId;
-		proposal.proposer = msg.sender;
-		proposal.description = description;
-		proposal.recipient = recipient;
-		proposal.amount = amount;
-		proposal.token = token;
-		proposal.startTime = block.timestamp;
-		proposal.endTime = block.timestamp + votingPeriod;
-		proposal.executed = false;
-		proposal.canceled = false;
-		
-		emit ProposalCreated(proposalId, msg.sender, description, recipient, amount, token, proposal.startTime, proposal.endTime);
-		// return proposalId;
+		newProposal.id = proposalId;
+		newProposal.proposer = msg.sender;
+		newProposal.description = description;
+		newProposal.recipient = recipient;
+		newProposal.amount = amount;
+		newProposal.token = token;
+		newProposal.startTime = block.timestamp;
+		newProposal.endTime = block.timestamp + votingPeriod;
+		newProposal.executed = false;
+		newProposal.canceled = false;
+
+		emit ProposalCreated(proposalId, msg.sender, description, recipient, amount, token, newProposal.startTime, newProposal.endTime);
 	}
 
 	function vote(uint256 proposalId, bool support) external {
@@ -117,7 +115,7 @@ contract DAO is Ownable {
 
 		require(proposal.proposer != address(0), "Proposal does not exist");
 		require(block.timestamp >= proposal.startTime, "Voting not started");
-		require(block.timestamps < proposal.endTime, "Voting has ended");
+		require(block.timestamp < proposal.endTime, "Voting has ended");
 		require(!proposal.hasVoted[msg.sender], "You have already voted on this proposal");
 		require(!proposal.canceled, "Proposal is canceled");
 		require(!proposal.executed, "Proposal is already executed");
@@ -160,14 +158,14 @@ contract DAO is Ownable {
 		require(!proposal.canceled, "Proposal is canceled");
 		require(!proposal.executed, "Proposal is already executed");
 		
-		require(proposal.forVotes > proposal.againstVotes >= quorumVotes, "Quorum not reached");
+		require(proposal.forVotes >= quorumVotes, "Quorum not reached");
 		require(proposal.forVotes > proposal.againstVotes, "Proposal not passed");
 
-		proposal.executed = true; 
+		proposal.executed = true;
 
-		treasury.approveProposal(proposalId);
+		treasury.approvedProposal(proposalId);
 
-		treasury.spendFunds(proposalId, proposal.recipient, proposal.amount, proposal.token);
+		treasury.sendFunds(proposalId, proposal.recipient, proposal.amount, proposal.token);
 
 		emit ProposalExecuted(proposalId);
 		
